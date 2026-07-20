@@ -10,16 +10,6 @@ A lightweight developer operations console to monitor multiple servers and **not
 - Get alerts via **Discord**, **Telegram**, **email**, or **webhook**
 - Track incidents (down → recovered)
 
-## Should you clone an existing tool?
-
-| Tool | Best for | Clone it? |
-|------|----------|-----------|
-| [Uptime Kuma](https://github.com/louislam/uptime-kuma) | Uptime + 90+ notification channels | Use as-is if you only need uptime |
-| [Beszel](https://github.com/henrygd/beszel) | Server metrics + Docker stats | Use as-is if you only need metrics |
-| **OpenOps (this)** | Unified dashboard + alerts + room to grow (logs, AI) | Build & extend |
-
-**Recommendation:** Don't fork Uptime Kuma or Beszel unless you want to maintain their full codebase. Use OpenOps as your custom layer, or run Uptime Kuma alongside it for battle-tested uptime checks.
-
 ## Quick start (local)
 
 ### 1. Backend
