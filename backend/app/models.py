@@ -41,12 +41,19 @@ class Server(Base):
     )
     last_checked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_log_excerpt: Mapped[str | None] = mapped_column(Text, nullable=True)
     agent_token: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
-    checks: Mapped[list["HealthCheck"]] = relationship(back_populates="server")
-    metrics: Mapped[list["ServerMetric"]] = relationship(back_populates="server")
-    incidents: Mapped[list["Incident"]] = relationship(back_populates="server")
+    checks: Mapped[list["HealthCheck"]] = relationship(
+        back_populates="server", cascade="all, delete-orphan"
+    )
+    metrics: Mapped[list["ServerMetric"]] = relationship(
+        back_populates="server", cascade="all, delete-orphan"
+    )
+    incidents: Mapped[list["Incident"]] = relationship(
+        back_populates="server", cascade="all, delete-orphan"
+    )
 
 
 class HealthCheck(Base):
@@ -103,6 +110,7 @@ class Incident(Base):
     server_id: Mapped[int] = mapped_column(ForeignKey("servers.id", ondelete="CASCADE"))
     title: Mapped[str] = mapped_column(String(255))
     message: Mapped[str] = mapped_column(Text)
+    log_excerpt: Mapped[str | None] = mapped_column(Text, nullable=True)
     severity: Mapped[str] = mapped_column(String(20), default="critical")
     resolved: Mapped[bool] = mapped_column(Boolean, default=False)
     started_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

@@ -2,13 +2,14 @@
 
 A lightweight developer operations console to monitor multiple servers and **notify you when something goes wrong**.
 
-## What it does today (MVP)
+## What it does
 
-- Register all your servers in one dashboard
-- Run health checks (HTTP, TCP, ping)
-- Install a small agent on each server for CPU/RAM/disk metrics
-- Get alerts via **Discord**, **Telegram**, **email**, or **webhook**
-- Track incidents (down → recovered)
+- Register and manage all your servers in one dashboard
+- Add **HTTP / TCP / ping** health checks from the UI
+- Run a small agent on each server for **CPU / RAM / disk** plus optional **log excerpts**
+- Open incidents that show **which server broke**, the error, and recent logs
+- Alert via **Discord**, **Telegram**, **email**, or **webhook**
+- Mark incidents resolved when things recover (automatic or manual)
 
 ## Quick start (local)
 
@@ -34,8 +35,8 @@ Open http://localhost:3000
 
 ### 3. Add a server
 
-1. Add server in the dashboard
-2. Copy the **agent token**
+1. Add a server in the dashboard
+2. Expand it and add health checks (or copy the agent token)
 3. On the server, run:
 
 ```bash
@@ -43,28 +44,15 @@ pip install -r agent/requirements.txt
 python agent/agent.py --hub http://YOUR_HUB_IP:8000 --token YOUR_TOKEN
 ```
 
-### 4. Add health checks (API)
+Optional: ship recent log lines from a file (or journalctl when available):
 
 ```bash
-# HTTP check
-curl -X POST http://localhost:8000/api/servers/1/checks \
-  -H "Content-Type: application/json" \
-  -d '{"name":"API health","check_type":"http","target":"https://api.example.com/health"}'
-
-# TCP check
-curl -X POST http://localhost:8000/api/servers/1/checks \
-  -H "Content-Type: application/json" \
-  -d '{"name":"Postgres","check_type":"tcp","target":"db.example.com:5432"}'
-
-# Ping check
-curl -X POST http://localhost:8000/api/servers/1/checks \
-  -H "Content-Type: application/json" \
-  -d '{"name":"Ping","check_type":"ping","target":"8.8.8.8"}'
+python agent/agent.py --hub http://YOUR_HUB_IP:8000 --token YOUR_TOKEN --log-file /var/log/myapp.log
 ```
 
-### 5. Discord notifications
+### 4. Notifications
 
-In the dashboard, paste your Discord webhook URL. You'll get alerts like:
+In the dashboard Notifications panel, add Discord / Telegram / webhook / email. Alerts look like:
 
 ```
 [DOWN] Ubuntu-03 (production)
@@ -72,31 +60,43 @@ Server `Ubuntu-03` is now down.
 Host: 10.0.0.5
 Check: API health
 Error: Connection refused
+
+Recent logs:
+...
 ```
 
 ## Docker
 
+Backend only (recommended while developing the frontend with `npm run dev`):
+
 ```bash
-docker compose up --build
+docker compose up --build backend
+```
+
+Full stack:
+
+```bash
+docker compose --profile full up --build
 ```
 
 - Dashboard: http://localhost:3000
 - API: http://localhost:8000
+- API docs: http://localhost:8000/docs
 
-## Roadmap (next phases)
+## Roadmap (later)
 
-1. **Logs** — ship logs with Grafana Loki or a lightweight log collector
-2. **SSH actions** — restart services, run commands from the dashboard
-3. **AI diagnosis** — correlate metrics + logs and suggest fixes
-4. **Deployments** — track last deploy per server
-5. **Multi-user auth** — team access with roles
+1. Centralized log shipping (Grafana Loki / collector)
+2. SSH actions from the dashboard
+3. AI diagnosis across metrics + logs
+4. Deployment tracking
+5. Multi-user auth with roles
 
 ## Architecture
 
 ```
 ┌─────────────┐     heartbeat      ┌──────────────┐
 │ OpenOps     │ ◄───────────────── │ Agent        │
-│ Agent       │                    │ (each server)│
+│ Agent       │   metrics + logs   │ (each server)│
 └─────────────┘                    └──────────────┘
        │
        ▼
@@ -105,11 +105,7 @@ docker compose up --build
 │ (FastAPI)    │                   │ HTTP/TCP/ping│
 └──────────────┘                   └──────────────┘
        │
-       ├──► SQLite/Postgres (servers, incidents)
-       ├──► Scheduler (every 30s)
+       ├──► SQLite (servers, checks, metrics, incidents)
+       ├──► Scheduler
        └──► Discord / Telegram / Email / Webhook
 ```
-
-## API docs
-
-Once running: http://localhost:8000/docs

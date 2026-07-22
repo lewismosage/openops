@@ -122,6 +122,151 @@ button {
   border: 1px solid var(--panel-border);
 }
 
+.server-card.stacked {
+  flex-direction: column;
+  align-items: stretch;
+  padding: 0;
+  overflow: hidden;
+}
+
+.server-card-button,
+.incident-button {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 1.1rem;
+  background: transparent;
+  border: none;
+  color: inherit;
+  text-align: left;
+}
+
+.server-details,
+.incident-body {
+  padding: 0 1.1rem 1.1rem;
+  display: grid;
+  gap: 1rem;
+}
+
+.side-column {
+  display: grid;
+  gap: 1rem;
+  align-content: start;
+}
+
+.metrics-row {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.metric-label {
+  display: flex;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin-bottom: 0.25rem;
+}
+
+.metric-track {
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+}
+
+.metric-fill {
+  height: 100%;
+  border-radius: inherit;
+}
+
+.detail-block {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.detail-heading {
+  font-weight: 600;
+}
+
+.check-row,
+.notification-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: flex-start;
+  padding: 0.75rem 0;
+  border-top: 1px solid var(--panel-border);
+}
+
+.check-name {
+  font-weight: 600;
+}
+
+.row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.form.compact {
+  margin-top: 0.25rem;
+}
+
+.ghost-btn {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  padding: 0.4rem 0.7rem;
+  font-size: 0.85rem;
+}
+
+.ghost-btn.danger {
+  color: var(--down);
+  border-color: rgba(239, 68, 68, 0.35);
+}
+
+.error-line {
+  color: var(--down);
+  font-size: 0.88rem;
+}
+
+.log-box {
+  margin: 0;
+  padding: 0.75rem;
+  border-radius: 10px;
+  background: #0d1426;
+  border: 1px solid var(--panel-border);
+  color: var(--muted);
+  font-family: Consolas, monospace;
+  font-size: 0.78rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 220px;
+  overflow: auto;
+}
+
+@media (max-width: 700px) {
+  .form-row {
+    grid-template-columns: 1fr;
+  }
+
+  .check-row,
+  .notification-row {
+    flex-direction: column;
+  }
+}
+
 .server-meta {
   display: flex;
   flex-direction: column;
