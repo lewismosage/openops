@@ -4,10 +4,10 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - openops_data:/app/openops.db
+      - openops_data:/app/data
     environment:
-      - DATABASE_URL=sqlite+aiosqlite:///./openops.db
-      - CORS_ORIGINS=http://localhost:3000
+      - DATABASE_URL=sqlite+aiosqlite:///./data/openops.db
+      - CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
 
   frontend:
     build: ./frontend
@@ -17,6 +17,8 @@ services:
       - NEXT_PUBLIC_API_URL=http://localhost:8000
     depends_on:
       - backend
+    profiles:
+      - full
 
 volumes:
   openops_data:

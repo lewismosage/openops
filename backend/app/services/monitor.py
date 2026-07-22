@@ -109,11 +109,14 @@ async def record_incident(
     title: str,
     message: str,
     severity: str = "critical",
+    log_excerpt: str | None = None,
 ) -> Incident:
+    excerpt = log_excerpt if log_excerpt is not None else server.last_log_excerpt
     incident = Incident(
         server_id=server.id,
         title=title,
         message=message,
+        log_excerpt=excerpt,
         severity=severity,
     )
     db.add(incident)
@@ -172,7 +175,7 @@ async def run_health_check(db: AsyncSession, check_id: int) -> None:
     server.last_checked_at = datetime.utcnow()
     server.last_error = error if server.status != ServerStatus.HEALTHY else None
 
-    if previous_status == ServerStatus.HEALTHY and server.status in {
+    if previous_status not in {ServerStatus.DOWN, ServerStatus.DEGRADED} and server.status in {
         ServerStatus.DOWN,
         ServerStatus.DEGRADED,
     }:
@@ -183,6 +186,8 @@ async def run_health_check(db: AsyncSession, check_id: int) -> None:
             f"Check: {check.name}\n"
             f"Error: {error or 'Health check failed'}"
         )
+        if server.last_log_excerpt:
+            message += f"\n\nRecent logs:\n{server.last_log_excerpt}"
         await record_incident(db, server, title, message)
         await notify_all(db, title, message)
     elif previous_status in {ServerStatus.DOWN, ServerStatus.DEGRADED} and server.status == ServerStatus.HEALTHY:
@@ -201,6 +206,7 @@ async def process_agent_heartbeat(
     memory_percent: float,
     disk_percent: float,
     load_avg: float | None,
+    log_excerpt: str | None = None,
 ) -> Server | None:
     result = await db.execute(select(Server).where(Server.agent_token == token))
     server = result.scalar_one_or_none()
@@ -217,6 +223,9 @@ async def process_agent_heartbeat(
     )
     db.add(metric)
 
+    if log_excerpt:
+        server.last_log_excerpt = log_excerpt[:8000]
+
     issues: list[str] = []
     if cpu_percent >= 90:
         issues.append(f"CPU at {cpu_percent:.1f}%")
@@ -225,7 +234,25 @@ async def process_agent_heartbeat(
     if disk_percent >= 90:
         issues.append(f"Disk at {disk_percent:.1f}%")
 
-    if issues:
+    # Prefer health-check status when enabled checks exist.
+    enabled_checks_result = await db.execute(
+        select(HealthCheck).where(
+            HealthCheck.server_id == server.id,
+            HealthCheck.enabled.is_(True),
+        )
+    )
+    enabled_checks = enabled_checks_result.scalars().all()
+
+    if enabled_checks:
+        server.status = worst_status([item.last_status for item in enabled_checks])
+        if issues and server.status == ServerStatus.HEALTHY:
+            server.status = ServerStatus.DEGRADED
+            server.last_error = ", ".join(issues)
+        elif issues:
+            server.last_error = ", ".join(issues)
+        elif server.status == ServerStatus.HEALTHY:
+            server.last_error = None
+    elif issues:
         server.status = ServerStatus.DEGRADED if cpu_percent < 98 and memory_percent < 98 else ServerStatus.DOWN
         server.last_error = ", ".join(issues)
     else:
@@ -234,9 +261,11 @@ async def process_agent_heartbeat(
 
     server.last_checked_at = datetime.utcnow()
 
-    if previous_status == ServerStatus.HEALTHY and server.status != ServerStatus.HEALTHY:
+    if previous_status not in {ServerStatus.DOWN, ServerStatus.DEGRADED} and server.status != ServerStatus.HEALTHY:
         title = f"[ALERT] {server.name} resource warning"
         message = f"Server `{server.name}`: {server.last_error}"
+        if server.last_log_excerpt:
+            message += f"\n\nRecent logs:\n{server.last_log_excerpt}"
         await record_incident(db, server, title, message, severity="warning")
         await notify_all(db, title, message)
     elif previous_status != ServerStatus.HEALTHY and server.status == ServerStatus.HEALTHY:

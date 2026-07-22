@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     agent_stale_check_interval_seconds: int = 30
     api_host: str = "0.0.0.0"
     api_port: int = 8000
-    cors_origins: str = "http://localhost:3000"
+    cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
 
     class Config:
         env_file = ".env"
