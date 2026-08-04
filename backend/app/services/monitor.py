@@ -12,6 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
+    CheckResult,
     HealthCheck,
     Incident,
     Notification,
@@ -159,10 +160,22 @@ async def run_health_check(db: AsyncSession, check_id: int) -> None:
     previous_status = server.status
 
     status, response_ms, error = await execute_check(check)
+    now = datetime.utcnow()
     check.last_status = status
     check.last_response_ms = response_ms
     check.last_error = error
-    check.last_checked_at = datetime.utcnow()
+    check.last_checked_at = now
+
+    db.add(
+        CheckResult(
+            check_id=check.id,
+            server_id=server.id,
+            status=status,
+            response_ms=response_ms,
+            error=error,
+            checked_at=now,
+        )
+    )
 
     checks_result = await db.execute(
         select(HealthCheck).where(
@@ -172,7 +185,7 @@ async def run_health_check(db: AsyncSession, check_id: int) -> None:
     )
     all_checks = checks_result.scalars().all()
     server.status = worst_status([item.last_status for item in all_checks])
-    server.last_checked_at = datetime.utcnow()
+    server.last_checked_at = now
     server.last_error = error if server.status != ServerStatus.HEALTHY else None
 
     if previous_status not in {ServerStatus.DOWN, ServerStatus.DEGRADED} and server.status in {
@@ -190,13 +203,17 @@ async def run_health_check(db: AsyncSession, check_id: int) -> None:
             message += f"\n\nRecent logs:\n{server.last_log_excerpt}"
         await record_incident(db, server, title, message)
         await notify_all(db, title, message)
-    elif previous_status in {ServerStatus.DOWN, ServerStatus.DEGRADED} and server.status == ServerStatus.HEALTHY:
+    elif previous_status != ServerStatus.HEALTHY and server.status == ServerStatus.HEALTHY:
         title = f"[RECOVERED] {server.name} ({server.environment})"
         message = f"Server `{server.name}` is healthy again."
         await resolve_open_incidents(db, server.id)
         await notify_all(db, title, message)
 
     await db.commit()
+
+    from app.services.issues import evaluate_server_issues
+
+    await evaluate_server_issues(db, server.id)
 
 
 async def process_agent_heartbeat(
@@ -273,6 +290,10 @@ async def process_agent_heartbeat(
         await notify_all(db, f"[RECOVERED] {server.name}", f"Server `{server.name}` metrics are normal.")
 
     await db.commit()
+
+    from app.services.issues import evaluate_server_issues
+
+    await evaluate_server_issues(db, server.id)
     return server
 
 
@@ -281,7 +302,10 @@ async def check_agent_heartbeats(db: AsyncSession, timeout_seconds: int) -> None
     If a server has an agent token but no enabled health checks, mark it DOWN
     when heartbeats stop arriving for too long.
     """
-    cutoff = datetime.utcnow() - timedelta(seconds=timeout_seconds)
+    now = datetime.utcnow()
+    cutoff = now - timedelta(seconds=timeout_seconds)
+    # Give newly created servers time to install/start the agent before alerting.
+    grace_cutoff = now - timedelta(seconds=timeout_seconds)
 
     servers_result = await db.execute(
         select(Server).where(Server.agent_token.is_not(None))
@@ -302,12 +326,19 @@ async def check_agent_heartbeats(db: AsyncSession, timeout_seconds: int) -> None
         if enabled_checks_count > 0:
             continue
 
+        # Never treat a brand-new server as timed out before the grace window.
+        if server.last_checked_at is None and server.created_at > grace_cutoff:
+            continue
+
         last = server.last_checked_at
         if last is not None and last >= cutoff:
             continue
 
+        # No heartbeat ever, and past grace — use age since creation.
         age_seconds = (
-            (datetime.utcnow() - last).total_seconds() if last is not None else timeout_seconds
+            (now - last).total_seconds()
+            if last is not None
+            else (now - server.created_at).total_seconds()
         )
 
         if server.status != ServerStatus.DOWN:
@@ -325,6 +356,10 @@ async def check_agent_heartbeats(db: AsyncSession, timeout_seconds: int) -> None
 
     await db.commit()
 
+    from app.services.issues import evaluate_all_issues
+
+    await evaluate_all_issues(db)
+
 
 def generate_agent_token() -> str:
     return secrets.token_urlsafe(24)
@@ -338,6 +373,10 @@ async def get_dashboard_stats(db: AsyncSession) -> dict:
     )
     open_incidents = incidents_result.scalar_one()
 
+    from app.services.issues import count_open_issues
+
+    open_issues = await count_open_issues(db)
+
     counts = {status: 0 for status in ServerStatus}
     for server in servers:
         counts[server.status] += 1
@@ -349,4 +388,5 @@ async def get_dashboard_stats(db: AsyncSession) -> dict:
         "down": counts[ServerStatus.DOWN],
         "unknown": counts[ServerStatus.UNKNOWN],
         "open_incidents": open_incidents,
+        "open_issues": open_issues,
     }

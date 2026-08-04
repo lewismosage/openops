@@ -11,6 +11,7 @@ export interface DashboardStats {
   down: number;
   unknown: number;
   open_incidents: number;
+  open_issues: number;
 }
 
 export interface Metric {
@@ -53,6 +54,9 @@ export interface Server {
   created_at: string;
   latest_metric: Metric | null;
   checks: HealthCheck[];
+  uptime_24h: number | null;
+  avg_latency_ms: number | null;
+  open_issues: number;
 }
 
 export interface Incident {
@@ -66,6 +70,35 @@ export interface Incident {
   resolved: boolean;
   started_at: string;
   resolved_at: string | null;
+}
+
+export interface Issue {
+  id: number;
+  server_id: number;
+  server_name: string | null;
+  code: string;
+  severity: string;
+  title: string;
+  message: string;
+  resolved: boolean;
+  created_at: string;
+  resolved_at: string | null;
+}
+
+export interface SparklinePoint {
+  checked_at: string;
+  response_ms: number | null;
+  status: string;
+}
+
+export interface ServerInsights {
+  server_id: number;
+  uptime_24h: number | null;
+  uptime_7d: number | null;
+  avg_latency_ms: number | null;
+  p95_latency_ms: number | null;
+  open_issues: number;
+  sparkline: SparklinePoint[];
 }
 
 export interface Notification {
@@ -99,7 +132,9 @@ export const api = {
   dashboard: () => request<DashboardStats>("/api/dashboard"),
   servers: () => request<Server[]>("/api/servers"),
   incidents: () => request<Incident[]>("/api/incidents"),
+  issues: (resolved = false) => request<Issue[]>(`/api/issues?resolved=${resolved}`),
   notifications: () => request<Notification[]>("/api/notifications"),
+  serverInsights: (id: number) => request<ServerInsights>(`/api/servers/${id}/insights`),
   createServer: (data: { name: string; host: string; environment: string; description?: string }) =>
     request<Server>("/api/servers", { method: "POST", body: JSON.stringify(data) }),
   deleteServer: (id: number) => request<{ ok: boolean }>(`/api/servers/${id}`, { method: "DELETE" }),
@@ -128,4 +163,6 @@ export const api = {
     request<{ ok: boolean }>(`/api/notifications/${id}`, { method: "DELETE" }),
   resolveIncident: (id: number) =>
     request<Incident>(`/api/incidents/${id}/resolve`, { method: "POST" }),
+  resolveIssue: (id: number) =>
+    request<Issue>(`/api/issues/${id}/resolve`, { method: "POST" }),
 };

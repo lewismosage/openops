@@ -83,6 +83,9 @@ class ServerResponse(BaseModel):
     created_at: datetime
     latest_metric: MetricResponse | None = None
     checks: list[HealthCheckResponse] = []
+    uptime_24h: float | None = None
+    avg_latency_ms: float | None = None
+    open_issues: int = 0
 
     model_config = {"from_attributes": True}
 
@@ -141,3 +144,35 @@ class DashboardStats(BaseModel):
     down: int
     unknown: int
     open_incidents: int
+    open_issues: int = 0
+
+
+class SparklinePoint(BaseModel):
+    checked_at: datetime
+    response_ms: float | None
+    status: str
+
+
+class ServerInsights(BaseModel):
+    server_id: int
+    uptime_24h: float | None = None
+    uptime_7d: float | None = None
+    avg_latency_ms: float | None = None
+    p95_latency_ms: float | None = None
+    open_issues: int = 0
+    sparkline: list[SparklinePoint] = []
+
+
+class IssueResponse(BaseModel):
+    id: int
+    server_id: int
+    server_name: str | None = None
+    code: str
+    severity: str
+    title: str
+    message: str
+    resolved: bool
+    created_at: datetime
+    resolved_at: datetime | None
+
+    model_config = {"from_attributes": True}

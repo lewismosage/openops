@@ -1,26 +1,31 @@
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models import HealthCheck, Incident, Notification, Server, ServerMetric
+from app.models import HealthCheck, Incident, Issue, Notification, Server, ServerMetric
 from app.schemas import (
     DashboardStats,
     HealthCheckCreate,
     HealthCheckResponse,
     HealthCheckUpdate,
     IncidentResponse,
+    IssueResponse,
     MetricResponse,
     NotificationCreate,
     NotificationResponse,
     NotificationUpdate,
     ServerCreate,
+    ServerInsights,
     ServerResponse,
     ServerUpdate,
 )
+from app.services.insights import get_server_insights, get_server_summary_metrics
+from app.services.issues import evaluate_server_issues
 from app.services.monitor import generate_agent_token, get_dashboard_stats
 from app.services.scheduler import refresh_scheduler
-from datetime import datetime
 
 router = APIRouter(prefix="/api", tags=["api"])
 
@@ -37,6 +42,7 @@ async def _server_response(db: AsyncSession, server: Server) -> ServerResponse:
         .limit(1)
     )
     latest_metric = metric_result.scalar_one_or_none()
+    uptime_24h, avg_latency_ms, open_issues = await get_server_summary_metrics(db, server.id)
     return ServerResponse(
         id=server.id,
         name=server.name,
@@ -51,6 +57,9 @@ async def _server_response(db: AsyncSession, server: Server) -> ServerResponse:
         created_at=server.created_at,
         latest_metric=MetricResponse.model_validate(latest_metric) if latest_metric else None,
         checks=[HealthCheckResponse.model_validate(check) for check in checks],
+        uptime_24h=uptime_24h,
+        avg_latency_ms=avg_latency_ms,
+        open_issues=open_issues,
     )
 
 
@@ -72,6 +81,7 @@ async def create_server(payload: ServerCreate, db: AsyncSession = Depends(get_db
     db.add(server)
     await db.commit()
     await db.refresh(server)
+    await evaluate_server_issues(db, server.id)
     return await _server_response(db, server)
 
 
@@ -82,6 +92,14 @@ async def get_server(server_id: int, db: AsyncSession = Depends(get_db)):
     if not server:
         raise HTTPException(status_code=404, detail="Server not found")
     return await _server_response(db, server)
+
+
+@router.get("/servers/{server_id}/insights", response_model=ServerInsights)
+async def server_insights(server_id: int, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Server).where(Server.id == server_id))
+    if not result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Server not found")
+    return await get_server_insights(db, server_id)
 
 
 @router.patch("/servers/{server_id}", response_model=ServerResponse)
@@ -148,6 +166,7 @@ async def create_check(
     await db.commit()
     await db.refresh(check)
     await refresh_scheduler()
+    await evaluate_server_issues(db, server_id)
     return check
 
 
@@ -167,6 +186,7 @@ async def update_check(
     await db.commit()
     await db.refresh(check)
     await refresh_scheduler()
+    await evaluate_server_issues(db, check.server_id)
     return check
 
 
@@ -176,9 +196,11 @@ async def delete_check(check_id: int, db: AsyncSession = Depends(get_db)):
     check = result.scalar_one_or_none()
     if not check:
         raise HTTPException(status_code=404, detail="Health check not found")
+    server_id = check.server_id
     await db.delete(check)
     await db.commit()
     await refresh_scheduler()
+    await evaluate_server_issues(db, server_id)
     return {"ok": True}
 
 
@@ -256,6 +278,42 @@ async def resolve_incident(incident_id: int, db: AsyncSession = Depends(get_db))
     incident.resolved_at = datetime.utcnow()
     await db.commit()
     await db.refresh(incident)
+    await evaluate_server_issues(db, incident.server_id)
     payload = IncidentResponse.model_validate(incident)
+    payload.server_name = server_name
+    return payload
+
+
+@router.get("/issues", response_model=list[IssueResponse])
+async def list_issues(resolved: bool | None = False, db: AsyncSession = Depends(get_db)):
+    stmt = select(Issue, Server.name).join(Server, Server.id == Issue.server_id)
+    if resolved is not None:
+        stmt = stmt.where(Issue.resolved.is_(resolved))
+    stmt = stmt.order_by(Issue.created_at.desc()).limit(100)
+    result = await db.execute(stmt)
+    issues: list[IssueResponse] = []
+    for issue, server_name in result.all():
+        payload = IssueResponse.model_validate(issue)
+        payload.server_name = server_name
+        issues.append(payload)
+    return issues
+
+
+@router.post("/issues/{issue_id}/resolve", response_model=IssueResponse)
+async def resolve_issue(issue_id: int, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(Issue, Server.name)
+        .join(Server, Server.id == Issue.server_id)
+        .where(Issue.id == issue_id)
+    )
+    row = result.one_or_none()
+    if not row:
+        raise HTTPException(status_code=404, detail="Issue not found")
+    issue, server_name = row
+    issue.resolved = True
+    issue.resolved_at = datetime.utcnow()
+    await db.commit()
+    await db.refresh(issue)
+    payload = IssueResponse.model_validate(issue)
     payload.server_name = server_name
     return payload

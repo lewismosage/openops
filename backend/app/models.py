@@ -54,6 +54,12 @@ class Server(Base):
     incidents: Mapped[list["Incident"]] = relationship(
         back_populates="server", cascade="all, delete-orphan"
     )
+    check_results: Mapped[list["CheckResult"]] = relationship(
+        back_populates="server", cascade="all, delete-orphan"
+    )
+    issues: Mapped[list["Issue"]] = relationship(
+        back_populates="server", cascade="all, delete-orphan"
+    )
 
 
 class HealthCheck(Base):
@@ -76,6 +82,24 @@ class HealthCheck(Base):
     last_checked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     server: Mapped["Server"] = relationship(back_populates="checks")
+    results: Mapped[list["CheckResult"]] = relationship(
+        back_populates="check", cascade="all, delete-orphan"
+    )
+
+
+class CheckResult(Base):
+    __tablename__ = "check_results"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    check_id: Mapped[int] = mapped_column(ForeignKey("health_checks.id", ondelete="CASCADE"))
+    server_id: Mapped[int] = mapped_column(ForeignKey("servers.id", ondelete="CASCADE"))
+    status: Mapped[ServerStatus] = mapped_column(Enum(ServerStatus), default=ServerStatus.UNKNOWN)
+    response_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    checked_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+    check: Mapped["HealthCheck"] = relationship(back_populates="results")
+    server: Mapped["Server"] = relationship(back_populates="check_results")
 
 
 class ServerMetric(Base):
@@ -117,3 +141,19 @@ class Incident(Base):
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     server: Mapped["Server"] = relationship(back_populates="incidents")
+
+
+class Issue(Base):
+    __tablename__ = "issues"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    server_id: Mapped[int] = mapped_column(ForeignKey("servers.id", ondelete="CASCADE"), index=True)
+    code: Mapped[str] = mapped_column(String(80), index=True)
+    severity: Mapped[str] = mapped_column(String(20), default="warning")
+    title: Mapped[str] = mapped_column(String(255))
+    message: Mapped[str] = mapped_column(Text)
+    resolved: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    server: Mapped["Server"] = relationship(back_populates="issues")
