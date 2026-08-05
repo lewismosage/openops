@@ -25,10 +25,13 @@ from app.services.notifier import send_notification
 
 async def run_http_check(check: HealthCheck) -> tuple[ServerStatus, float | None, str | None]:
     expected = check.expected_status or 200
+    target = check.target.strip()
+    if not target:
+        return ServerStatus.DOWN, None, "HTTP target URL is required"
     try:
         async with httpx.AsyncClient(timeout=check.timeout_seconds) as client:
             start = datetime.utcnow()
-            response = await client.get(check.target)
+            response = await client.get(target)
             elapsed_ms = (datetime.utcnow() - start).total_seconds() * 1000
             if response.status_code == expected:
                 return ServerStatus.HEALTHY, elapsed_ms, None

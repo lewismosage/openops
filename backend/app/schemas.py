@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.models import CheckType, NotificationChannel, ServerStatus
 
@@ -40,6 +40,11 @@ class HealthCheckCreate(BaseModel):
     expected_status: int | None = 200
     enabled: bool = True
 
+    @field_validator("name", "target")
+    @classmethod
+    def strip_text(cls, value: str) -> str:
+        return value.strip()
+
 
 class HealthCheckUpdate(BaseModel):
     name: str | None = None
@@ -49,6 +54,11 @@ class HealthCheckUpdate(BaseModel):
     timeout_seconds: int | None = None
     expected_status: int | None = None
     enabled: bool | None = None
+
+    @field_validator("name", "target")
+    @classmethod
+    def strip_text(cls, value: str | None) -> str | None:
+        return value.strip() if isinstance(value, str) else value
 
 
 class HealthCheckResponse(BaseModel):

@@ -288,23 +288,6 @@ async def update_notification(
     return notification
 
 
-@router.delete("/notifications/{notification_id}")
-async def delete_notification(
-    notification_id: int,
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
-    result = await db.execute(
-        select(Notification).where(Notification.id == notification_id, Notification.user_id == user.id)
-    )
-    notification = result.scalar_one_or_none()
-    if not notification:
-        raise HTTPException(status_code=404, detail="Notification not found")
-    await db.delete(notification)
-    await db.commit()
-    return {"ok": True}
-
-
 @router.get("/incidents", response_model=list[IncidentResponse])
 async def list_incidents(db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
     result = await db.execute(

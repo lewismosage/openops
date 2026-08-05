@@ -12,7 +12,7 @@ export const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000
 
 export type ServerStatus = "healthy" | "degraded" | "down" | "unknown";
 export type CheckType = "http" | "tcp" | "ping" | "agent";
-export type NotificationChannel = "discord" | "telegram" | "webhook" | "email";
+export type NotificationChannel = "email";
 
 export interface DashboardStats {
   total_servers: number;
@@ -243,10 +243,8 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ ...data, enabled: true }),
     }),
-  updateNotification: (id: number, data: { enabled?: boolean; name?: string }) =>
+  updateNotification: (id: number, data: { enabled?: boolean; name?: string; config_json?: string }) =>
     request<Notification>(`/api/notifications/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
-  deleteNotification: (id: number) =>
-    request<{ ok: boolean }>(`/api/notifications/${id}`, { method: "DELETE" }),
   resolveIncident: (id: number) =>
     request<Incident>(`/api/incidents/${id}/resolve`, { method: "POST" }),
   resolveIssue: (id: number) =>

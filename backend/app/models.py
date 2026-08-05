@@ -22,9 +22,6 @@ class CheckType(str, enum.Enum):
 
 
 class NotificationChannel(str, enum.Enum):
-    DISCORD = "discord"
-    TELEGRAM = "telegram"
-    WEBHOOK = "webhook"
     EMAIL = "email"
 
 
@@ -142,7 +139,9 @@ class Notification(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
     name: Mapped[str] = mapped_column(String(120))
-    channel: Mapped[NotificationChannel] = mapped_column(Enum(NotificationChannel))
+    channel: Mapped[NotificationChannel] = mapped_column(
+        Enum(NotificationChannel, values_callable=lambda x: [e.value for e in x], native_enum=False)
+    )
     config_json: Mapped[str] = mapped_column(Text)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
@@ -178,5 +177,6 @@ class Issue(Base):
     resolved: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_notified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     server: Mapped["Server"] = relationship(back_populates="issues")
