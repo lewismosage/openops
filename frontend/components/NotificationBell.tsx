@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import type { Incident, Issue, Server } from "@/lib/api";
 
 export type AlertKind = "issue" | "incident" | "status";
@@ -147,7 +148,13 @@ export function NotificationBell({
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [page, setPage] = useState(1);
+  const [mounted, setMounted] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const pageSize = 10;
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     setReadIds(loadIdSet(readKey(userId)));
@@ -159,8 +166,13 @@ export function NotificationBell({
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setOpen(false);
     };
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener("keydown", onKey);
+    };
   }, [open]);
 
   const alerts = useMemo(
@@ -249,6 +261,15 @@ export function NotificationBell({
     }
   }
 
+  async function handleRefresh() {
+    setRefreshing(true);
+    try {
+      await onRefresh();
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
   function viewAlert(alert: ServerAlert) {
     markRead([alert.id]);
     setOpen(false);
@@ -278,15 +299,17 @@ export function NotificationBell({
         <span className={`notif-live-dot ${unreadCount > 0 ? "alert" : "ok"}`} />
       </button>
 
-      {open && (
-        <div className="notif-sheet-backdrop" onClick={() => setOpen(false)} role="presentation">
-          <aside
-            className="notif-sheet"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Notifications"
-            onClick={(e) => e.stopPropagation()}
-          >
+      {mounted &&
+        open &&
+        createPortal(
+          <div className="notif-sheet-backdrop" onClick={() => setOpen(false)} role="presentation">
+            <aside
+              className="notif-sheet"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Notifications"
+              onClick={(e) => e.stopPropagation()}
+            >
             <header className="notif-sheet-header">
               <div className="notif-sheet-title">
                 <span className="notif-sheet-icon" aria-hidden>
@@ -306,8 +329,14 @@ export function NotificationBell({
               </div>
               <div className="notif-sheet-actions">
                 <span className="notif-unread-pill">{unreadCount} Unread</span>
-                <button type="button" className="ghost-btn" onClick={() => onRefresh()}>
-                  Refresh
+                <button
+                  type="button"
+                  className="ghost-btn btn-with-spinner"
+                  onClick={handleRefresh}
+                  disabled={refreshing}
+                >
+                  {refreshing && <span className="btn-spinner" aria-hidden />}
+                  {refreshing ? "Refreshing…" : "Refresh"}
                 </button>
                 <button type="button" className="ghost-btn notif-close" onClick={() => setOpen(false)} aria-label="Close">
                   ×
@@ -462,9 +491,10 @@ export function NotificationBell({
                 </button>
               </div>
             </footer>
-          </aside>
-        </div>
-      )}
+            </aside>
+          </div>,
+          document.body,
+        )}
     </>
   );
 }

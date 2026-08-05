@@ -45,7 +45,7 @@ function LoginForm() {
         user: data.user,
         session: data.session,
       });
-      router.replace("/");
+      router.replace("/dashboard");
     } catch (err) {
       setError(authErrorMessage(err, "Login failed"));
     } finally {
@@ -54,19 +54,19 @@ function LoginForm() {
   }
 
   return (
-    <form className="login-card" onSubmit={handleSubmit}>
-      <div className="login-brand">
-        <div className="brand-mark">O</div>
+    <form className="auth-card" onSubmit={handleSubmit}>
+      <Link href="/" className="auth-brand">
+        <span className="mkt-brand-mark">O</span>
         <div>
           <h1>OpenOps</h1>
-          <p className="muted">Sign in to manage your servers</p>
+          <p>Sign in to manage your servers</p>
         </div>
-      </div>
+      </Link>
 
       {expired && <div className="error-banner">Your session expired. Please sign in again.</div>}
       {error && <div className="error-banner">{error}</div>}
 
-      <label className="login-label">
+      <label className="auth-label">
         Email
         <input
           type="email"
@@ -76,7 +76,7 @@ function LoginForm() {
           autoComplete="username"
         />
       </label>
-      <label className="login-label">
+      <label className="auth-label">
         Password
         <input
           type="password"
@@ -86,10 +86,13 @@ function LoginForm() {
           autoComplete="current-password"
         />
       </label>
-      <button className="primary-btn" type="submit" disabled={loading}>
+      <div className="auth-forgot-row">
+        <Link href="/forgot-password">Forgot password?</Link>
+      </div>
+      <button className="mkt-btn mkt-btn-primary mkt-btn-lg auth-submit" type="submit" disabled={loading}>
         {loading ? "Signing in…" : "Sign in"}
       </button>
-      <p className="login-switch muted">
+      <p className="auth-switch">
         New here? <Link href="/register">Create an account</Link>
       </p>
     </form>
@@ -98,8 +101,9 @@ function LoginForm() {
 
 export default function LoginPage() {
   return (
-    <main className="login-page">
-      <Suspense fallback={<div className="login-card muted">Loading…</div>}>
+    <main className="auth-page">
+      <div className="auth-glow" aria-hidden />
+      <Suspense fallback={<div className="auth-card">Loading…</div>}>
         <LoginForm />
       </Suspense>
     </main>

@@ -203,6 +203,16 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ name, email, password }),
     }, false),
+  forgotPassword: (email: string) =>
+    request<{ ok: boolean; message: string; reset_url?: string }>("/api/auth/forgot-password", {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    }, false),
+  resetPassword: (token: string, new_password: string) =>
+    request<{ ok: boolean; message: string }>("/api/auth/reset-password", {
+      method: "POST",
+      body: JSON.stringify({ token, new_password }),
+    }, false),
   me: () => request<{ id: number; email: string; name: string; status: string }>("/api/auth/me"),
   logout: () => request<{ ok: boolean }>("/api/auth/logout", { method: "POST" }),
   dashboard: () => request<DashboardStats>("/api/dashboard"),

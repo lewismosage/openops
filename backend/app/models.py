@@ -38,6 +38,8 @@ class User(Base):
     status: Mapped[str] = mapped_column(String(20), default="active")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    reset_token_hash: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    reset_token_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     servers: Mapped[list["Server"]] = relationship(back_populates="owner")
     notifications: Mapped[list["Notification"]] = relationship(back_populates="owner")

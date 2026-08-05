@@ -1,4 +1,7 @@
-from datetime import datetime
+from datetime import datetime, timedelta
+import hashlib
+import logging
+import secrets
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr, Field
@@ -17,6 +20,7 @@ from app.config import settings
 from app.database import get_db
 from app.models import User
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
@@ -33,6 +37,15 @@ class RegisterRequest(BaseModel):
 
 class RefreshRequest(BaseModel):
     refresh_token: str
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str = Field(min_length=20)
+    new_password: str = Field(min_length=8, max_length=128)
 
 
 class UserResponse(BaseModel):
@@ -66,6 +79,10 @@ def _token_response(user: User) -> TokenResponse:
             "absolute_timeout_hours": settings.absolute_timeout_hours,
         },
     )
+
+
+def _hash_reset_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
@@ -118,6 +135,59 @@ async def refresh(payload: RefreshRequest, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive")
 
     return _token_response(user)
+
+
+@router.post("/forgot-password")
+async def forgot_password(payload: ForgotPasswordRequest, db: AsyncSession = Depends(get_db)):
+    email = payload.email.strip().lower()
+    result = await db.execute(select(User).where(User.email == email))
+    user = result.scalar_one_or_none()
+
+    response: dict = {
+        "ok": True,
+        "message": "If an account exists for that email, a password reset link is ready.",
+    }
+
+    if user and user.status == "active":
+        raw_token = secrets.token_urlsafe(32)
+        user.reset_token_hash = _hash_reset_token(raw_token)
+        user.reset_token_expires_at = datetime.utcnow() + timedelta(
+            minutes=settings.password_reset_expire_minutes
+        )
+        await db.commit()
+
+        reset_url = f"{settings.frontend_url.rstrip('/')}/reset-password?token={raw_token}"
+        logger.info("Password reset link for %s: %s", email, reset_url)
+        # Until outbound email is configured, expose the link in local/dev responses.
+        if settings.expose_password_reset_links:
+            response["reset_url"] = reset_url
+            response["message"] = (
+                "Password reset link created. Open the link below to choose a new password."
+            )
+
+    return response
+
+
+@router.post("/reset-password")
+async def reset_password(payload: ResetPasswordRequest, db: AsyncSession = Depends(get_db)):
+    token_hash = _hash_reset_token(payload.token.strip())
+    result = await db.execute(select(User).where(User.reset_token_hash == token_hash))
+    user = result.scalar_one_or_none()
+    if not user or not user.reset_token_expires_at:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired reset link")
+    if user.reset_token_expires_at < datetime.utcnow():
+        user.reset_token_hash = None
+        user.reset_token_expires_at = None
+        await db.commit()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Reset link has expired")
+    if user.status != "active":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is inactive")
+
+    user.password_hash = hash_password(payload.new_password)
+    user.reset_token_hash = None
+    user.reset_token_expires_at = None
+    await db.commit()
+    return {"ok": True, "message": "Password updated. You can sign in with your new password."}
 
 
 @router.get("/me", response_model=UserResponse)

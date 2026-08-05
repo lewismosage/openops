@@ -27,6 +27,8 @@ async def _ensure_columns(conn) -> None:
         ("servers", "user_id", "INTEGER"),
         ("incidents", "log_excerpt", "TEXT"),
         ("notifications", "user_id", "INTEGER"),
+        ("users", "reset_token_hash", "VARCHAR(128)"),
+        ("users", "reset_token_expires_at", "DATETIME"),
     ]
     for table, column, column_type in alterations:
         result = await conn.execute(text(f"PRAGMA table_info({table})"))
