@@ -1,8 +1,8 @@
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlalchemy import select
 
-from app.database import SessionLocal
 from app.config import settings
+from app.database import SessionLocal
 from app.models import HealthCheck
 from app.services.monitor import check_agent_heartbeats, run_health_check
 
@@ -38,6 +38,17 @@ async def schedule_all_checks() -> None:
         replace_existing=True,
     )
 
+    issues_job_id = "evaluate-issues"
+    if scheduler.get_job(issues_job_id):
+        scheduler.remove_job(issues_job_id)
+    scheduler.add_job(
+        _run_issues_job,
+        "interval",
+        seconds=60,
+        id=issues_job_id,
+        replace_existing=True,
+    )
+
 
 async def _run_check_job(check_id: int) -> None:
     async with SessionLocal() as db:
@@ -52,6 +63,13 @@ async def _run_agent_stale_job() -> None:
         )
 
 
+async def _run_issues_job() -> None:
+    from app.services.issues import evaluate_all_issues
+
+    async with SessionLocal() as db:
+        await evaluate_all_issues(db)
+
+
 def start_scheduler() -> None:
     if not scheduler.running:
         scheduler.start()
@@ -59,4 +77,3 @@ def start_scheduler() -> None:
 
 async def refresh_scheduler() -> None:
     await schedule_all_checks()
-

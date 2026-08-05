@@ -24,7 +24,9 @@ async def _ensure_columns(conn) -> None:
     """SQLite-friendly additive migrations for existing MVP databases."""
     alterations = [
         ("servers", "last_log_excerpt", "TEXT"),
+        ("servers", "user_id", "INTEGER"),
         ("incidents", "log_excerpt", "TEXT"),
+        ("notifications", "user_id", "INTEGER"),
     ]
     for table, column, column_type in alterations:
         result = await conn.execute(text(f"PRAGMA table_info({table})"))
@@ -34,6 +36,9 @@ async def _ensure_columns(conn) -> None:
 
 
 async def init_db() -> None:
+    # Import models so metadata includes all tables before create_all.
+    from app import models  # noqa: F401
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         await _ensure_columns(conn)
