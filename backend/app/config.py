@@ -23,6 +23,11 @@ class Settings(BaseSettings):
     seed_admin_email: str = "maendalewis20@gmail.com"
     seed_admin_password: str = "@Lewis9590"
     seed_admin_name: str = "Lewis"
+    frontend_url: str = "http://localhost:3000"
+    password_reset_expire_minutes: int = 60
+    # When true (local/dev), forgot-password responses include the reset URL.
+    # Turn off once real email delivery is configured.
+    expose_password_reset_links: bool = True
 
     class Config:
         env_file = ".env"

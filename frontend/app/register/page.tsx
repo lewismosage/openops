@@ -54,7 +54,7 @@ export default function RegisterPage() {
         user: data.user,
         session: data.session,
       });
-      router.replace("/");
+      router.replace("/dashboard");
     } catch (err) {
       setError(authErrorMessage(err, "Could not create account"));
     } finally {
@@ -63,19 +63,20 @@ export default function RegisterPage() {
   }
 
   return (
-    <main className="login-page">
-      <form className="login-card" onSubmit={handleSubmit}>
-        <div className="login-brand">
-          <div className="brand-mark">O</div>
+    <main className="auth-page">
+      <div className="auth-glow" aria-hidden />
+      <form className="auth-card" onSubmit={handleSubmit}>
+        <Link href="/" className="auth-brand">
+          <span className="mkt-brand-mark">O</span>
           <div>
             <h1>OpenOps</h1>
-            <p className="muted">Create an account to monitor your servers</p>
+            <p>Create an account to monitor your servers</p>
           </div>
-        </div>
+        </Link>
 
         {error && <div className="error-banner">{error}</div>}
 
-        <label className="login-label">
+        <label className="auth-label">
           Name
           <input
             type="text"
@@ -85,7 +86,7 @@ export default function RegisterPage() {
             autoComplete="name"
           />
         </label>
-        <label className="login-label">
+        <label className="auth-label">
           Email
           <input
             type="email"
@@ -95,7 +96,7 @@ export default function RegisterPage() {
             autoComplete="username"
           />
         </label>
-        <label className="login-label">
+        <label className="auth-label">
           Password
           <input
             type="password"
@@ -106,7 +107,7 @@ export default function RegisterPage() {
             autoComplete="new-password"
           />
         </label>
-        <label className="login-label">
+        <label className="auth-label">
           Confirm password
           <input
             type="password"
@@ -117,10 +118,10 @@ export default function RegisterPage() {
             autoComplete="new-password"
           />
         </label>
-        <button className="primary-btn" type="submit" disabled={loading}>
+        <button className="mkt-btn mkt-btn-primary mkt-btn-lg auth-submit" type="submit" disabled={loading}>
           {loading ? "Creating account…" : "Create account"}
         </button>
-        <p className="login-switch muted">
+        <p className="auth-switch">
           Already have an account? <Link href="/login">Sign in</Link>
         </p>
       </form>
