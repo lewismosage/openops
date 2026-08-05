@@ -13,6 +13,16 @@ class Settings(BaseSettings):
         "http://localhost:3001,http://127.0.0.1:3001,"
         "http://localhost:3002,http://127.0.0.1:3002"
     )
+    jwt_secret: str = "openops-dev-secret-change-me"
+    jwt_algorithm: str = "HS256"
+    access_token_expire_minutes: int = 30
+    refresh_token_expire_days: int = 7
+    # Accord-like session policy (enforced mainly on the client; refresh respects absolute window)
+    inactivity_timeout_minutes: int = 60
+    absolute_timeout_hours: int = 24
+    seed_admin_email: str = "maendalewis20@gmail.com"
+    seed_admin_password: str = "@Lewis9590"
+    seed_admin_name: str = "Lewis"
 
     class Config:
         env_file = ".env"

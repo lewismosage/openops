@@ -1,3 +1,13 @@
+import {
+  clearSession,
+  getAccessToken,
+  getRefreshToken,
+  persistSession,
+  touchActivity,
+  type AuthUser,
+  type SessionPolicy,
+} from "@/lib/auth";
+
 export const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export type ServerStatus = "healthy" | "degraded" | "down" | "unknown";
@@ -110,25 +120,91 @@ export interface Notification {
   created_at: string;
 }
 
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
+export interface AuthLoginResponse {
+  access_token: string;
+  refresh_token: string;
+  token_type: string;
+  expires_in: number;
+  user: AuthUser;
+  session: SessionPolicy;
+}
+
+let refreshPromise: Promise<boolean> | null = null;
+
+async function tryRefresh(): Promise<boolean> {
+  const refreshToken = getRefreshToken();
+  if (!refreshToken) return false;
+  try {
+    const response = await fetch(`${API_URL}/api/auth/refresh`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+      cache: "no-store",
+    });
+    if (!response.ok) return false;
+    const data = (await response.json()) as AuthLoginResponse;
+    persistSession({
+      access_token: data.access_token,
+      refresh_token: data.refresh_token,
+      user: data.user,
+      session: data.session,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function request<T>(path: string, options?: RequestInit, retry = true): Promise<T> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(options?.headers as Record<string, string> | undefined),
+  };
+  const token = getAccessToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+
   const response = await fetch(`${API_URL}${path}`, {
     ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(options?.headers || {}),
-    },
+    headers,
     cache: "no-store",
   });
+
+  if (response.status === 401 && retry && !path.startsWith("/api/auth/")) {
+    if (!refreshPromise) refreshPromise = tryRefresh().finally(() => {
+      refreshPromise = null;
+    });
+    const ok = await refreshPromise;
+    if (ok) return request<T>(path, options, false);
+    clearSession();
+    if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
+      window.location.href = "/login?expired=1";
+    }
+    throw new Error("Session expired");
+  }
+
   if (!response.ok) {
     throw new Error(await response.text());
   }
   if (response.status === 204) {
     return undefined as T;
   }
+  touchActivity();
   return response.json();
 }
 
 export const api = {
+  login: (email: string, password: string) =>
+    request<AuthLoginResponse>("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    }, false),
+  register: (name: string, email: string, password: string) =>
+    request<AuthLoginResponse>("/api/auth/register", {
+      method: "POST",
+      body: JSON.stringify({ name, email, password }),
+    }, false),
+  me: () => request<{ id: number; email: string; name: string; status: string }>("/api/auth/me"),
+  logout: () => request<{ ok: boolean }>("/api/auth/logout", { method: "POST" }),
   dashboard: () => request<DashboardStats>("/api/dashboard"),
   servers: () => request<Server[]>("/api/servers"),
   incidents: () => request<Incident[]>("/api/incidents"),

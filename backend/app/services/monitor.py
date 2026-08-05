@@ -137,10 +137,16 @@ async def resolve_open_incidents(db: AsyncSession, server_id: int) -> None:
         incident.resolved_at = datetime.utcnow()
 
 
-async def notify_all(db: AsyncSession, title: str, message: str) -> None:
-    result = await db.execute(
-        select(Notification).where(Notification.enabled.is_(True))
-    )
+async def notify_all(
+    db: AsyncSession,
+    title: str,
+    message: str,
+    user_id: int | None = None,
+) -> None:
+    stmt = select(Notification).where(Notification.enabled.is_(True))
+    if user_id is not None:
+        stmt = stmt.where(Notification.user_id == user_id)
+    result = await db.execute(stmt)
     for notification in result.scalars().all():
         await send_notification(notification, title, message)
 
@@ -202,12 +208,12 @@ async def run_health_check(db: AsyncSession, check_id: int) -> None:
         if server.last_log_excerpt:
             message += f"\n\nRecent logs:\n{server.last_log_excerpt}"
         await record_incident(db, server, title, message)
-        await notify_all(db, title, message)
+        await notify_all(db, title, message, user_id=server.user_id)
     elif previous_status != ServerStatus.HEALTHY and server.status == ServerStatus.HEALTHY:
         title = f"[RECOVERED] {server.name} ({server.environment})"
         message = f"Server `{server.name}` is healthy again."
         await resolve_open_incidents(db, server.id)
-        await notify_all(db, title, message)
+        await notify_all(db, title, message, user_id=server.user_id)
 
     await db.commit()
 
@@ -284,10 +290,10 @@ async def process_agent_heartbeat(
         if server.last_log_excerpt:
             message += f"\n\nRecent logs:\n{server.last_log_excerpt}"
         await record_incident(db, server, title, message, severity="warning")
-        await notify_all(db, title, message)
+        await notify_all(db, title, message, user_id=server.user_id)
     elif previous_status != ServerStatus.HEALTHY and server.status == ServerStatus.HEALTHY:
         await resolve_open_incidents(db, server.id)
-        await notify_all(db, f"[RECOVERED] {server.name}", f"Server `{server.name}` metrics are normal.")
+        await notify_all(db, f"[RECOVERED] {server.name}", f"Server `{server.name}` metrics are normal.", user_id=server.user_id)
 
     await db.commit()
 
@@ -352,7 +358,7 @@ async def check_agent_heartbeats(db: AsyncSession, timeout_seconds: int) -> None
                 f"Reason: agent heartbeat timeout"
             )
             await record_incident(db, server, title, message)
-            await notify_all(db, title, message)
+            await notify_all(db, title, message, user_id=server.user_id)
 
     await db.commit()
 
@@ -365,17 +371,32 @@ def generate_agent_token() -> str:
     return secrets.token_urlsafe(24)
 
 
-async def get_dashboard_stats(db: AsyncSession) -> dict:
-    servers_result = await db.execute(select(Server))
+async def get_dashboard_stats(db: AsyncSession, user_id: int | None = None) -> dict:
+    servers_stmt = select(Server)
+    if user_id is not None:
+        servers_stmt = servers_stmt.where(Server.user_id == user_id)
+    servers_result = await db.execute(servers_stmt)
     servers = servers_result.scalars().all()
-    incidents_result = await db.execute(
-        select(func.count()).select_from(Incident).where(Incident.resolved.is_(False))
-    )
-    open_incidents = incidents_result.scalar_one()
+    server_ids = [server.id for server in servers]
 
-    from app.services.issues import count_open_issues
+    if server_ids:
+        incidents_result = await db.execute(
+            select(func.count())
+            .select_from(Incident)
+            .where(Incident.resolved.is_(False), Incident.server_id.in_(server_ids))
+        )
+        open_incidents = incidents_result.scalar_one()
+        from app.models import Issue
 
-    open_issues = await count_open_issues(db)
+        issues_result = await db.execute(
+            select(func.count())
+            .select_from(Issue)
+            .where(Issue.resolved.is_(False), Issue.server_id.in_(server_ids))
+        )
+        open_issues = issues_result.scalar_one()
+    else:
+        open_incidents = 0
+        open_issues = 0
 
     counts = {status: 0 for status in ServerStatus}
     for server in servers:

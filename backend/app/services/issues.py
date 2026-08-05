@@ -212,6 +212,7 @@ async def evaluate_server_issues(db: AsyncSession, server_id: int) -> None:
             db,
             f"[{item.severity.upper()}] {server.name}: {item.title}",
             f"{item.message}\n\nCode: `{item.code}`\nHost: {server.host}",
+            user_id=server.user_id,
         )
 
     await db.commit()

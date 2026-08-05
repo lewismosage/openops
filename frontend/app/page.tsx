@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   api,
   CheckType,
@@ -14,8 +15,17 @@ import {
   ServerInsights,
   SparklinePoint,
 } from "@/lib/api";
+import {
+  clearSession,
+  getSessionExpiryReason,
+  getStoredUser,
+  isAuthenticated,
+  touchActivity,
+  type AuthUser,
+} from "@/lib/auth";
+import { NotificationBell } from "@/components/NotificationBell";
 
-type NavSection = "overview" | "servers" | "issues" | "incidents" | "notifications";
+type NavSection = "servers" | "issues" | "incidents" | "notifications";
 
 function StatusBadge({ status }: { status: string }) {
   return <span className={`badge ${status}`}>{status}</span>;
@@ -124,6 +134,10 @@ const emptyCheckForm = {
 };
 
 export default function HomePage() {
+  const router = useRouter();
+  const [authReady, setAuthReady] = useState(false);
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [sessionNotice, setSessionNotice] = useState<string | null>(null);
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [servers, setServers] = useState<Server[]>([]);
   const [incidents, setIncidents] = useState<Incident[]>([]);
@@ -134,7 +148,7 @@ export default function HomePage() {
   const [expandedServerId, setExpandedServerId] = useState<number | null>(null);
   const [expandedIncidentId, setExpandedIncidentId] = useState<number | null>(null);
   const [insights, setInsights] = useState<ServerInsights | null>(null);
-  const [section, setSection] = useState<NavSection>("overview");
+  const [section, setSection] = useState<NavSection>("servers");
   const [query, setQuery] = useState("");
   const [showAddServer, setShowAddServer] = useState(false);
 
@@ -162,6 +176,44 @@ export default function HomePage() {
     to_email: "",
   });
 
+  async function handleLogout(reason?: string) {
+    try {
+      await api.logout();
+    } catch {
+      // ignore network errors on logout
+    }
+    clearSession();
+    router.replace(reason ? `/login?expired=1` : "/login");
+  }
+
+  useEffect(() => {
+    if (!isAuthenticated()) {
+      router.replace("/login");
+      return;
+    }
+    setUser(getStoredUser());
+    setAuthReady(true);
+  }, [router]);
+
+  useEffect(() => {
+    if (!authReady) return;
+    const onActivity = () => touchActivity();
+    const events = ["mousemove", "keydown", "click", "scroll"] as const;
+    events.forEach((event) => window.addEventListener(event, onActivity, { passive: true }));
+    const timer = window.setInterval(() => {
+      const reason = getSessionExpiryReason();
+      if (reason === "absolute") {
+        handleLogout("expired");
+      } else if (reason === "inactivity") {
+        setSessionNotice("Your session expired due to inactivity.");
+      }
+    }, 30_000);
+    return () => {
+      events.forEach((event) => window.removeEventListener(event, onActivity));
+      window.clearInterval(timer);
+    };
+  }, [authReady]);
+
   async function refresh() {
     try {
       const [dashboard, serverList, incidentList, issueList, notificationList] = await Promise.all([
@@ -183,10 +235,11 @@ export default function HomePage() {
   }
 
   useEffect(() => {
+    if (!authReady) return;
     refresh();
     const interval = setInterval(refresh, 15000);
     return () => clearInterval(interval);
-  }, []);
+  }, [authReady]);
 
   useEffect(() => {
     if (!expandedServerId) {
@@ -334,11 +387,18 @@ export default function HomePage() {
   }
 
   function sectionTitle() {
-    if (section === "overview") return "Overview";
     if (section === "servers") return "Servers";
     if (section === "issues") return "Issues";
     if (section === "incidents") return "Incidents";
     return "Notifications";
+  }
+
+  if (!authReady) {
+    return (
+      <div className="login-page">
+        <div className="login-card muted">Checking session…</div>
+      </div>
+    );
   }
 
   return (
@@ -352,7 +412,6 @@ export default function HomePage() {
         <nav className="sidebar-nav">
           {(
             [
-              ["overview", "Overview"],
               ["servers", "Servers"],
               ["issues", "Issues"],
               ["incidents", "Incidents"],
@@ -366,7 +425,6 @@ export default function HomePage() {
               onClick={() => setSection(id)}
             >
               <span className="nav-icon" aria-hidden>
-                {id === "overview" && "▣"}
                 {id === "servers" && "▦"}
                 {id === "issues" && "!"}
                 {id === "incidents" && "⚠"}
@@ -381,7 +439,14 @@ export default function HomePage() {
           ))}
         </nav>
 
-        <div className="sidebar-footer">Monitor · alert · recover</div>
+        <div className="sidebar-footer">
+          <div className="sidebar-user" title={user?.email || ""}>
+            {user?.name || user?.email || "Signed in"}
+          </div>
+          <button type="button" className="ghost-btn sidebar-logout" onClick={() => handleLogout()}>
+            Sign out
+          </button>
+        </div>
       </aside>
 
       <div className="main">
@@ -392,32 +457,64 @@ export default function HomePage() {
             </span>
           </div>
           <div className="topbar-actions">
-            <input
-              className="search-box"
-              placeholder="Search servers"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-            <button type="button" className="ghost-btn" onClick={refresh}>
-              Refresh
-            </button>
-            <button
-              type="button"
-              className="primary-btn"
-              onClick={() => {
-                setSection("servers");
-                setShowAddServer(true);
+            <NotificationBell
+              userId={user?.id ?? null}
+              issues={issues}
+              incidents={incidents}
+              servers={servers}
+              onRefresh={refresh}
+              onOpenIssue={(serverId) => {
+                setSection("issues");
+                if (serverId) setExpandedServerId(serverId);
               }}
-            >
-              Add New
-            </button>
+              onOpenIncident={(serverId) => {
+                setSection("incidents");
+                if (serverId) setExpandedServerId(serverId);
+              }}
+            />
+            {section === "servers" && (
+              <input
+                className="search-box"
+                placeholder="Search servers"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+            )}
+            {section === "servers" && (
+              <>
+                <button type="button" className="ghost-btn" onClick={refresh}>
+                  Refresh
+                </button>
+                <button
+                  type="button"
+                  className="primary-btn"
+                  onClick={() => {
+                    setSection("servers");
+                    setShowAddServer(true);
+                  }}
+                >
+                  Add New
+                </button>
+              </>
+            )}
           </div>
         </header>
 
         <div className="content">
+          {sessionNotice && (
+            <div className="session-modal-backdrop" role="dialog" aria-modal="true">
+              <div className="session-modal">
+                <h2>Session expired</h2>
+                <p className="muted">{sessionNotice}</p>
+                <button type="button" className="primary-btn" onClick={() => handleLogout("expired")}>
+                  Sign in again
+                </button>
+              </div>
+            </div>
+          )}
           {error && <div className="error-banner">{error}</div>}
 
-          {(section === "overview" || section === "servers") && (
+          {section === "servers" && (
             <div className="overview-grid">
               <aside className="overview-rail">
                 <section className="card">
@@ -527,7 +624,6 @@ export default function HomePage() {
                         className={`project-card ${expandedServerId === server.id ? "selected" : ""}`}
                         onClick={() => {
                           setExpandedServerId(expandedServerId === server.id ? null : server.id);
-                          setSection("servers");
                         }}
                       >
                         <div className="project-card-top">
@@ -609,7 +705,7 @@ export default function HomePage() {
                   </div>
                 )}
 
-                {selectedServer && section === "servers" && (
+                {selectedServer && (
                   <ServerDetail
                     server={selectedServer}
                     insights={insights}

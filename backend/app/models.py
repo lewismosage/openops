@@ -1,7 +1,7 @@
 import enum
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Enum, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Enum, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -28,11 +28,28 @@ class NotificationChannel(str, enum.Enum):
     EMAIL = "email"
 
 
-class Server(Base):
-    __tablename__ = "servers"
+class User(Base):
+    __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    name: Mapped[str] = mapped_column(String(120), unique=True, index=True)
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(120), default="User")
+    password_hash: Mapped[str] = mapped_column(String(255))
+    status: Mapped[str] = mapped_column(String(20), default="active")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    servers: Mapped[list["Server"]] = relationship(back_populates="owner")
+    notifications: Mapped[list["Notification"]] = relationship(back_populates="owner")
+
+
+class Server(Base):
+    __tablename__ = "servers"
+    __table_args__ = (UniqueConstraint("user_id", "name", name="uq_server_user_name"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
+    name: Mapped[str] = mapped_column(String(120), index=True)
     host: Mapped[str] = mapped_column(String(255))
     environment: Mapped[str] = mapped_column(String(50), default="production")
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -45,6 +62,7 @@ class Server(Base):
     agent_token: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
+    owner: Mapped["User | None"] = relationship(back_populates="servers")
     checks: Mapped[list["HealthCheck"]] = relationship(
         back_populates="server", cascade="all, delete-orphan"
     )
@@ -120,11 +138,14 @@ class Notification(Base):
     __tablename__ = "notifications"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
     name: Mapped[str] = mapped_column(String(120))
     channel: Mapped[NotificationChannel] = mapped_column(Enum(NotificationChannel))
     config_json: Mapped[str] = mapped_column(Text)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    owner: Mapped["User | None"] = relationship(back_populates="notifications")
 
 
 class Incident(Base):

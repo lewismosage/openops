@@ -3,15 +3,18 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.auth import seed_admin_user
 from app.config import settings
-from app.database import init_db
-from app.routers import agent, api
+from app.database import SessionLocal, init_db
+from app.routers import agent, api, auth
 from app.services.scheduler import refresh_scheduler, start_scheduler
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     await init_db()
+    async with SessionLocal() as db:
+        await seed_admin_user(db)
     start_scheduler()
     await refresh_scheduler()
     yield
@@ -27,6 +30,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth.router)
 app.include_router(api.router)
 app.include_router(agent.router)
 
