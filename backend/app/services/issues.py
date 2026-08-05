@@ -13,10 +13,39 @@ from app.models import HealthCheck, Incident, Issue, Server, ServerMetric, Serve
 from app.services.monitor import notify_all as _notify_all
 
 
-async def notify_all(db: AsyncSession, title: str, message: str) -> None:
-    await _notify_all(db, title, message)
+async def notify_all(db: AsyncSession, title: str, message: str, user_id: int | None = None) -> None:
+    await _notify_all(db, title, message, user_id=user_id)
 
 SLOW_CHECK_MS = 2000.0
+
+
+def _issue_email_cooldown(item: DetectedIssue) -> timedelta:
+    if item.severity == "critical":
+        return timedelta(minutes=settings.issue_critical_email_cooldown_minutes)
+    return timedelta(minutes=settings.issue_warning_email_cooldown_minutes)
+
+
+def _should_email_issue(issue: Issue | None, item: DetectedIssue) -> bool:
+    if issue is None or issue.last_notified_at is None:
+        return True
+    return datetime.utcnow() - issue.last_notified_at >= _issue_email_cooldown(item)
+
+
+async def _email_issue(
+    db: AsyncSession,
+    server: Server,
+    issue: Issue,
+    item: DetectedIssue,
+) -> None:
+    if not _should_email_issue(issue, item):
+        return
+    await notify_all(
+        db,
+        f"[{item.severity.upper()}] {server.name}: {item.title}",
+        f"{item.message}\n\nCode: `{item.code}`\nHost: {server.host}",
+        user_id=server.user_id,
+    )
+    issue.last_notified_at = datetime.utcnow()
 
 
 @dataclass
@@ -208,12 +237,7 @@ async def evaluate_server_issues(db: AsyncSession, server_id: int) -> None:
             db.add(new_issue)
 
         await db.flush()
-        await notify_all(
-            db,
-            f"[{item.severity.upper()}] {server.name}: {item.title}",
-            f"{item.message}\n\nCode: `{item.code}`\nHost: {server.host}",
-            user_id=server.user_id,
-        )
+        await _email_issue(db, server, new_issue, item)
 
     await db.commit()
 

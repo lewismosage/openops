@@ -13,7 +13,7 @@ const faqs = [
   },
   {
     q: "How do notifications work?",
-    a: "Connect Discord, Telegram, webhook, or email channels. When checks fail or recover, OpenOps can push alerts to the channels you enable.",
+    a: "Add an email notification channel. When checks fail or recover, OpenOps sends alerts to the address you enable.",
   },
   {
     q: "Do I need an agent on every server?",

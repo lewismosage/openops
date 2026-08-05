@@ -10,7 +10,6 @@ import {
   Incident,
   Issue,
   Notification,
-  NotificationChannel,
   Server,
   ServerInsights,
   SparklinePoint,
@@ -25,8 +24,9 @@ import {
 } from "@/lib/auth";
 import { NotificationBell } from "@/components/NotificationBell";
 import { ThemeToggle } from "@/components/ThemeProvider";
+import { AppModal } from "@/components/AppModal";
 
-type NavSection = "servers" | "issues" | "incidents" | "notifications";
+type NavSection = "servers" | "issues" | "incidents";
 
 function StatusBadge({ status }: { status: string }) {
   return <span className={`badge ${status}`}>{status}</span>;
@@ -153,6 +153,8 @@ export default function HomePage() {
   const [query, setQuery] = useState("");
   const [showAddServer, setShowAddServer] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [pendingDeleteServerId, setPendingDeleteServerId] = useState<number | null>(null);
+  const [deletingServer, setDeletingServer] = useState(false);
 
   const [serverForm, setServerForm] = useState({
     name: "",
@@ -162,21 +164,6 @@ export default function HomePage() {
   });
 
   const [checkForms, setCheckForms] = useState<Record<number, typeof emptyCheckForm>>({});
-
-  const [notifyForm, setNotifyForm] = useState({
-    name: "Discord Alerts",
-    channel: "discord" as NotificationChannel,
-    webhook_url: "",
-    bot_token: "",
-    chat_id: "",
-    url: "",
-    smtp_host: "",
-    smtp_port: "587",
-    username: "",
-    password: "",
-    from_email: "",
-    to_email: "",
-  });
 
   async function handleLogout(reason?: string) {
     try {
@@ -321,10 +308,20 @@ export default function HomePage() {
   }
 
   async function handleDeleteServer(serverId: number) {
-    if (!confirm("Delete this server and all its checks/incidents?")) return;
-    await api.deleteServer(serverId);
-    if (expandedServerId === serverId) setExpandedServerId(null);
-    await refresh();
+    setPendingDeleteServerId(serverId);
+  }
+
+  async function confirmDeleteServer() {
+    if (pendingDeleteServerId === null) return;
+    setDeletingServer(true);
+    try {
+      await api.deleteServer(pendingDeleteServerId);
+      if (expandedServerId === pendingDeleteServerId) setExpandedServerId(null);
+      setPendingDeleteServerId(null);
+      await refresh();
+    } finally {
+      setDeletingServer(false);
+    }
   }
 
   async function handleAddCheck(event: FormEvent, serverId: number) {
@@ -351,42 +348,6 @@ export default function HomePage() {
     await refresh();
   }
 
-  async function handleAddNotification(event: FormEvent) {
-    event.preventDefault();
-    let config: Record<string, string> = {};
-    if (notifyForm.channel === "discord") {
-      config = { webhook_url: notifyForm.webhook_url };
-    } else if (notifyForm.channel === "telegram") {
-      config = { bot_token: notifyForm.bot_token, chat_id: notifyForm.chat_id };
-    } else if (notifyForm.channel === "webhook") {
-      config = { url: notifyForm.url };
-    } else {
-      config = {
-        smtp_host: notifyForm.smtp_host,
-        smtp_port: notifyForm.smtp_port,
-        username: notifyForm.username,
-        password: notifyForm.password,
-        from_email: notifyForm.from_email,
-        to_email: notifyForm.to_email,
-      };
-    }
-
-    await api.createNotification({
-      name: notifyForm.name,
-      channel: notifyForm.channel,
-      config_json: JSON.stringify(config),
-    });
-    setNotifyForm({
-      ...notifyForm,
-      webhook_url: "",
-      bot_token: "",
-      chat_id: "",
-      url: "",
-      password: "",
-    });
-    await refresh();
-  }
-
   async function handleResolveIncident(id: number) {
     await api.resolveIncident(id);
     await refresh();
@@ -400,8 +361,7 @@ export default function HomePage() {
   function sectionTitle() {
     if (section === "servers") return "Servers";
     if (section === "issues") return "Issues";
-    if (section === "incidents") return "Incidents";
-    return "Notifications";
+    return "Incidents";
   }
 
   if (!authReady) {
@@ -426,7 +386,6 @@ export default function HomePage() {
               ["servers", "Servers"],
               ["issues", "Issues"],
               ["incidents", "Incidents"],
-              ["notifications", "Notifications"],
             ] as const
           ).map(([id, label]) => (
             <button
@@ -439,7 +398,6 @@ export default function HomePage() {
                 {id === "servers" && "▦"}
                 {id === "issues" && "!"}
                 {id === "incidents" && "⚠"}
-                {id === "notifications" && "⚑"}
               </span>
               <span style={{ flex: 1 }}>{label}</span>
               {id === "issues" && issues.length > 0 && <span className="nav-badge">{issues.length}</span>}
@@ -473,7 +431,9 @@ export default function HomePage() {
               issues={issues}
               incidents={incidents}
               servers={servers}
+              channels={notifications}
               onRefresh={handleManualRefresh}
+              onChannelsChange={refresh}
               onOpenIssue={(serverId) => {
                 setSection("issues");
                 if (serverId) setExpandedServerId(serverId);
@@ -497,16 +457,29 @@ export default function HomePage() {
 
         <div className="content">
           {sessionNotice && (
-            <div className="session-modal-backdrop" role="dialog" aria-modal="true">
-              <div className="session-modal">
-                <h2>Session expired</h2>
-                <p className="muted">{sessionNotice}</p>
-                <button type="button" className="primary-btn" onClick={() => handleLogout("expired")}>
-                  Sign in again
-                </button>
-              </div>
-            </div>
+            <AppModal
+              open
+              title="Session expired"
+              message={sessionNotice}
+              confirmLabel="Sign in again"
+              hideCancel
+              onConfirm={() => handleLogout("expired")}
+            />
           )}
+
+          <AppModal
+            open={pendingDeleteServerId !== null}
+            title="Delete server?"
+            message="Delete this server and all its checks and incidents? This cannot be undone."
+            confirmLabel="Delete server"
+            cancelLabel="Cancel"
+            danger
+            loading={deletingServer}
+            onConfirm={confirmDeleteServer}
+            onCancel={() => {
+              if (!deletingServer) setPendingDeleteServerId(null);
+            }}
+          />
           {error && <div className="error-banner">{error}</div>}
 
           {section === "servers" && (
@@ -827,140 +800,6 @@ export default function HomePage() {
             </section>
           )}
 
-          {section === "notifications" && (
-            <section className="card" style={{ maxWidth: 640 }}>
-              <div className="card-header">
-                <h2 className="card-title">Notifications</h2>
-              </div>
-              {notifications.length === 0 && <p className="muted">No notification channels yet.</p>}
-              {notifications.map((notification) => (
-                <div key={notification.id} className="notification-row">
-                  <div>
-                    <div className="check-name">{notification.name}</div>
-                    <div className="muted">
-                      {notification.channel} · {notification.enabled ? "enabled" : "disabled"}
-                    </div>
-                  </div>
-                  <div className="row-actions">
-                    <button
-                      type="button"
-                      className="ghost-btn"
-                      onClick={() =>
-                        api.updateNotification(notification.id, { enabled: !notification.enabled }).then(refresh)
-                      }
-                    >
-                      {notification.enabled ? "Disable" : "Enable"}
-                    </button>
-                    <button
-                      type="button"
-                      className="ghost-btn danger"
-                      onClick={() => api.deleteNotification(notification.id).then(refresh)}
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </div>
-              ))}
-
-              <form className="form" onSubmit={handleAddNotification} style={{ marginTop: "1rem" }}>
-                <h3>Add notification channel</h3>
-                <input
-                  placeholder="Name"
-                  value={notifyForm.name}
-                  onChange={(e) => setNotifyForm({ ...notifyForm, name: e.target.value })}
-                  required
-                />
-                <select
-                  value={notifyForm.channel}
-                  onChange={(e) =>
-                    setNotifyForm({ ...notifyForm, channel: e.target.value as NotificationChannel })
-                  }
-                >
-                  <option value="discord">Discord</option>
-                  <option value="telegram">Telegram</option>
-                  <option value="webhook">Webhook</option>
-                  <option value="email">Email</option>
-                </select>
-
-                {notifyForm.channel === "discord" && (
-                  <input
-                    placeholder="Discord webhook URL"
-                    value={notifyForm.webhook_url}
-                    onChange={(e) => setNotifyForm({ ...notifyForm, webhook_url: e.target.value })}
-                    required
-                  />
-                )}
-                {notifyForm.channel === "telegram" && (
-                  <>
-                    <input
-                      placeholder="Bot token"
-                      value={notifyForm.bot_token}
-                      onChange={(e) => setNotifyForm({ ...notifyForm, bot_token: e.target.value })}
-                      required
-                    />
-                    <input
-                      placeholder="Chat ID"
-                      value={notifyForm.chat_id}
-                      onChange={(e) => setNotifyForm({ ...notifyForm, chat_id: e.target.value })}
-                      required
-                    />
-                  </>
-                )}
-                {notifyForm.channel === "webhook" && (
-                  <input
-                    placeholder="Webhook URL"
-                    value={notifyForm.url}
-                    onChange={(e) => setNotifyForm({ ...notifyForm, url: e.target.value })}
-                    required
-                  />
-                )}
-                {notifyForm.channel === "email" && (
-                  <>
-                    <input
-                      placeholder="SMTP host"
-                      value={notifyForm.smtp_host}
-                      onChange={(e) => setNotifyForm({ ...notifyForm, smtp_host: e.target.value })}
-                      required
-                    />
-                    <input
-                      placeholder="SMTP port"
-                      value={notifyForm.smtp_port}
-                      onChange={(e) => setNotifyForm({ ...notifyForm, smtp_port: e.target.value })}
-                      required
-                    />
-                    <input
-                      placeholder="Username"
-                      value={notifyForm.username}
-                      onChange={(e) => setNotifyForm({ ...notifyForm, username: e.target.value })}
-                      required
-                    />
-                    <input
-                      type="password"
-                      placeholder="Password"
-                      value={notifyForm.password}
-                      onChange={(e) => setNotifyForm({ ...notifyForm, password: e.target.value })}
-                      required
-                    />
-                    <input
-                      placeholder="From email"
-                      value={notifyForm.from_email}
-                      onChange={(e) => setNotifyForm({ ...notifyForm, from_email: e.target.value })}
-                      required
-                    />
-                    <input
-                      placeholder="To email"
-                      value={notifyForm.to_email}
-                      onChange={(e) => setNotifyForm({ ...notifyForm, to_email: e.target.value })}
-                      required
-                    />
-                  </>
-                )}
-                <button className="primary-btn" type="submit">
-                  Save notification
-                </button>
-              </form>
-            </section>
-          )}
         </div>
       </div>
     </div>

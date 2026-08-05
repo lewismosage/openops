@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import type { Incident, Issue, Server } from "@/lib/api";
+import { api, type Incident, type Issue, type Notification, type Server } from "@/lib/api";
 
 export type AlertKind = "issue" | "incident" | "status";
 
@@ -18,7 +18,7 @@ export type ServerAlert = {
   open: boolean;
 };
 
-type Filter = "all" | "unread" | "critical" | "issues" | "incidents";
+type Filter = "all" | "unread" | "critical" | "issues" | "incidents" | "channels";
 
 function parseUtcDate(value: string): Date {
   const hasZone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(value);
@@ -128,7 +128,9 @@ type Props = {
   issues: Issue[];
   incidents: Incident[];
   servers: Server[];
+  channels: Notification[];
   onRefresh: () => void | Promise<void>;
+  onChannelsChange: () => void | Promise<void>;
   onOpenIssue: (serverId: number | null) => void;
   onOpenIncident: (serverId: number | null) => void;
 };
@@ -138,7 +140,9 @@ export function NotificationBell({
   issues,
   incidents,
   servers,
+  channels,
   onRefresh,
+  onChannelsChange,
   onOpenIssue,
   onOpenIncident,
 }: Props) {
@@ -150,6 +154,10 @@ export function NotificationBell({
   const [page, setPage] = useState(1);
   const [mounted, setMounted] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [editingChannelId, setEditingChannelId] = useState<number | null>(null);
+  const [channelName, setChannelName] = useState("Email Alerts");
+  const [channelEmail, setChannelEmail] = useState("");
+  const [savingChannel, setSavingChannel] = useState(false);
   const pageSize = 10;
 
   useEffect(() => {
@@ -277,6 +285,45 @@ export function NotificationBell({
     else onOpenIncident(alert.serverId);
   }
 
+  function emailDestination(channel: Notification): string {
+    try {
+      return (JSON.parse(channel.config_json) as { to_email?: string }).to_email || "";
+    } catch {
+      return "";
+    }
+  }
+
+  function startChannelEdit(channel?: Notification) {
+    setEditingChannelId(channel?.id ?? 0);
+    setChannelName(channel?.name ?? "Email Alerts");
+    setChannelEmail(channel ? emailDestination(channel) : "");
+  }
+
+  async function saveChannel(event: FormEvent) {
+    event.preventDefault();
+    setSavingChannel(true);
+    try {
+      const data = {
+        name: channelName.trim() || "Email Alerts",
+        config_json: JSON.stringify({ to_email: channelEmail.trim() }),
+      };
+      if (editingChannelId) {
+        await api.updateNotification(editingChannelId, data);
+      } else {
+        await api.createNotification({ ...data, channel: "email" });
+      }
+      setEditingChannelId(null);
+      await onChannelsChange();
+    } finally {
+      setSavingChannel(false);
+    }
+  }
+
+  async function toggleChannel(channel: Notification) {
+    await api.updateNotification(channel.id, { enabled: !channel.enabled });
+    await onChannelsChange();
+  }
+
   return (
     <>
       <button
@@ -352,6 +399,7 @@ export function NotificationBell({
                   ["critical", "Critical"],
                   ["issues", "Issues"],
                   ["incidents", "Incidents"],
+                  ["channels", "Notifications channel"],
                 ] as const
               ).map(([id, label]) => (
                 <button
@@ -366,32 +414,98 @@ export function NotificationBell({
               ))}
             </div>
 
-            <div className="notif-toolbar">
-              <div>
-                <h3>System Alerts</h3>
-                <p className="muted">Important notifications about your monitored servers</p>
-              </div>
-              <div className="notif-toolbar-actions">
-                <button type="button" className="ghost-btn" onClick={markAllRead} disabled={unreadCount === 0}>
-                  Mark All as Read
-                </button>
-                {selected.size > 0 && (
-                  <button
-                    type="button"
-                    className="ghost-btn danger-text"
-                    onClick={() => dismiss([...selected])}
-                  >
-                    Delete selected
-                  </button>
+            {filter === "channels" ? (
+              <div className="notif-channel-panel">
+                <div className="notif-toolbar">
+                  <div>
+                    <h3>Notifications channel</h3>
+                    <p className="muted">Choose the email address that receives server alerts.</p>
+                  </div>
+                  {channels.length === 0 && editingChannelId === null && (
+                    <button type="button" className="primary-btn" onClick={() => startChannelEdit()}>
+                      Add email
+                    </button>
+                  )}
+                </div>
+
+                {channels.length === 0 && editingChannelId === null && (
+                  <div className="notif-empty">No email notification channel configured.</div>
+                )}
+
+                {channels.map((channel) => (
+                  <div className="notif-channel-row" key={channel.id}>
+                    <div>
+                      <strong>{channel.name}</strong>
+                      <div className="muted">
+                        email · {emailDestination(channel)} · {channel.enabled ? "enabled" : "disabled"}
+                      </div>
+                    </div>
+                    <div className="notif-row-actions">
+                      <button type="button" className="ghost-btn" onClick={() => toggleChannel(channel)}>
+                        {channel.enabled ? "Disable" : "Enable"}
+                      </button>
+                      <button type="button" className="ghost-btn" onClick={() => startChannelEdit(channel)}>
+                        Edit
+                      </button>
+                    </div>
+                  </div>
+                ))}
+
+                {editingChannelId !== null && (
+                  <form className="notif-channel-form" onSubmit={saveChannel}>
+                    <h3>{editingChannelId ? "Edit email channel" : "Add email channel"}</h3>
+                    <input
+                      value={channelName}
+                      onChange={(event) => setChannelName(event.target.value)}
+                      placeholder="Channel name"
+                      required
+                    />
+                    <input
+                      type="email"
+                      value={channelEmail}
+                      onChange={(event) => setChannelEmail(event.target.value)}
+                      placeholder="Email address"
+                      required
+                    />
+                    <div className="notif-row-actions">
+                      <button type="submit" className="primary-btn" disabled={savingChannel}>
+                        {savingChannel ? "Saving…" : "Save"}
+                      </button>
+                      <button type="button" className="ghost-btn" onClick={() => setEditingChannelId(null)}>
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
                 )}
               </div>
-            </div>
+            ) : (
+              <>
+                <div className="notif-toolbar">
+                  <div>
+                    <h3>System Alerts</h3>
+                    <p className="muted">Important notifications about your monitored servers</p>
+                  </div>
+                  <div className="notif-toolbar-actions">
+                    <button type="button" className="ghost-btn" onClick={markAllRead} disabled={unreadCount === 0}>
+                      Mark All as Read
+                    </button>
+                    {selected.size > 0 && (
+                      <button
+                        type="button"
+                        className="ghost-btn danger-text"
+                        onClick={() => dismiss([...selected])}
+                      >
+                        Delete selected
+                      </button>
+                    )}
+                  </div>
+                </div>
 
-            <div className="notif-table-wrap">
-              {pageItems.length === 0 ? (
-                <div className="notif-empty">No notifications for this filter.</div>
-              ) : (
-                <table className="notif-table">
+                <div className="notif-table-wrap">
+                  {pageItems.length === 0 ? (
+                    <div className="notif-empty">No notifications for this filter.</div>
+                  ) : (
+                    <table className="notif-table">
                   <thead>
                     <tr>
                       <th>
@@ -465,32 +579,34 @@ export function NotificationBell({
                       );
                     })}
                   </tbody>
-                </table>
-              )}
-            </div>
+                    </table>
+                  )}
+                </div>
 
-            <footer className="notif-footer">
-              <span className="muted">
-                Showing {filtered.length === 0 ? 0 : (page - 1) * pageSize + 1} to{" "}
-                {Math.min(page * pageSize, filtered.length)} of {filtered.length} entries
-              </span>
-              <div className="notif-pagination">
-                <button type="button" className="ghost-btn" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
-                  Prev
-                </button>
-                <span>
-                  {page} / {totalPages}
-                </span>
-                <button
-                  type="button"
-                  className="ghost-btn"
-                  disabled={page >= totalPages}
-                  onClick={() => setPage((p) => p + 1)}
-                >
-                  Next
-                </button>
-              </div>
-            </footer>
+                <footer className="notif-footer">
+                  <span className="muted">
+                    Showing {filtered.length === 0 ? 0 : (page - 1) * pageSize + 1} to{" "}
+                    {Math.min(page * pageSize, filtered.length)} of {filtered.length} entries
+                  </span>
+                  <div className="notif-pagination">
+                    <button type="button" className="ghost-btn" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+                      Prev
+                    </button>
+                    <span>
+                      {page} / {totalPages}
+                    </span>
+                    <button
+                      type="button"
+                      className="ghost-btn"
+                      disabled={page >= totalPages}
+                      onClick={() => setPage((p) => p + 1)}
+                    >
+                      Next
+                    </button>
+                  </div>
+                </footer>
+              </>
+            )}
             </aside>
           </div>,
           document.body,

@@ -29,6 +29,20 @@ class Settings(BaseSettings):
     # Turn off once real email delivery is configured.
     expose_password_reset_links: bool = True
 
+    # System SMTP (Brevo, etc.) — used for notification emails; users only set recipient.
+    email_host: str = ""
+    email_port: int = 587
+    email_host_user: str = ""
+    email_host_password: str = ""
+    default_from_email: str = ""
+    default_from_name: str = "OpenOps Servers Monitor"
+    contact_email: str = ""
+    admin_email: str = ""
+
+    # Minimum time between repeat emails for the same issue type.
+    issue_warning_email_cooldown_minutes: int = 360  # 6 hours for slow/latency warnings
+    issue_critical_email_cooldown_minutes: int = 30  # 30 minutes for critical repeats
+
     class Config:
         env_file = ".env"
 

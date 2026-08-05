@@ -17,11 +17,11 @@ const features = [
   },
   {
     eyebrow: "Notifications",
-    title: "Alert the channels you already use",
+    title: "Send alerts straight to your inbox",
     description:
-      "Pipe downtime and recoveries to Discord, Telegram, webhooks, or email — so the right people act immediately.",
-    highlight: "Channels live",
-    sub: "Discord · Telegram · Email",
+      "Email downtime and recovery alerts to the right people so they can act immediately.",
+    highlight: "Email alerts live",
+    sub: "Simple · Direct · Configurable",
   },
 ];
 

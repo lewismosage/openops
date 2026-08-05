@@ -8,7 +8,7 @@ A lightweight developer operations console to monitor multiple servers and **not
 - Add **HTTP / TCP / ping** health checks from the UI
 - Run a small agent on each server for **CPU / RAM / disk** plus optional **log excerpts**
 - Open incidents that show **which server broke**, the error, and recent logs
-- Alert via **Discord**, **Telegram**, **email**, or **webhook**
+- Send alerts through **email**
 - Mark incidents resolved when things recover (automatic or manual)
 
 ## Quick start (local)
@@ -52,7 +52,7 @@ python agent/agent.py --hub http://YOUR_HUB_IP:8000 --token YOUR_TOKEN --log-fil
 
 ### 4. Notifications
 
-In the dashboard Notifications panel, add Discord / Telegram / webhook / email. Alerts look like:
+In the notification sheet, open **Notification channel** and add an email address. Alerts look like:
 
 ```
 [DOWN] Ubuntu-03 (production)
