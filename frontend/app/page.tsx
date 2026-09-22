@@ -8,6 +8,7 @@ import { MarketingIntegrations } from "@/components/marketing/marketing-integrat
 import { MarketingNavbar } from "@/components/marketing/marketing-navbar";
 import { MarketingShell } from "@/components/marketing/marketing-shell";
 
+
 export default function HomePage() {
   return (
     <MarketingShell>
