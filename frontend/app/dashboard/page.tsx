@@ -114,7 +114,7 @@ function relativeTime(value: string | null | undefined) {
 
 function initialFor(name: string) {
   return (name.trim()[0] || "?").toUpperCase();
-}
+} 
 
 function formatPct(value: number | null | undefined) {
   if (value == null) return "—";
